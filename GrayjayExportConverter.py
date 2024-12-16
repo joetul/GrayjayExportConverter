@@ -129,7 +129,7 @@ def process_export_directory(export_path, output_path):
                     if "youtube.com/watch?v=" in u:
                         vid = parse_youtube_id(u)
                         if vid:
-                            ts = datetime.now(timezone.utc).isoformat()
+                            ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
                             youtube_entries.append([vid, ts])
 
                 if youtube_entries:
@@ -148,7 +148,7 @@ def process_export_directory(export_path, output_path):
                 if "youtube.com/watch?v=" in u:
                     vid = parse_youtube_id(u)
                     if vid:
-                        ts = datetime.now(timezone.utc).isoformat()
+                        ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
                         youtube_entries.append([vid, ts])
 
             if youtube_entries:

@@ -22,11 +22,3 @@ You can also download `index.html` and open it directly on your computer.
 
 Only YouTube data is converted. Other platforms (Spotify, etc.) are skipped.
 
-## Tested With
-
-- **LibreTube** — subscriptions, watch history, playlists
-- **FreeTube** — subscriptions, watch history
-
-## Note on LibreTube
-
-LibreTube uses Piped by default. Since Piped can sometimes be unstable, you may want to disable the Piped proxy in the Instance settings within the app.

@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grayjay Export Converter</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #0f0f0f;
+      color: #e1e1e1;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      margin-bottom: 0.4rem;
+      color: #fff;
+    }
+
+    .subtitle {
+      color: #aaa;
+      margin-bottom: 2rem;
+      text-align: center;
+    }
+
+    .container {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 12px;
+      padding: 2rem;
+      max-width: 560px;
+      width: 100%;
+    }
+
+    .drop-zone {
+      border: 2px dashed #555;
+      border-radius: 8px;
+      padding: 3rem 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      margin-bottom: 1.5rem;
+    }
+
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: #ff4444;
+      background: rgba(255, 68, 68, 0.05);
+    }
+
+    .drop-zone p {
+      color: #aaa;
+      margin-top: 0.5rem;
+      font-size: 0.9rem;
+    }
+
+    .drop-zone .icon {
+      font-size: 2.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    #file-input { display: none; }
+
+    #status {
+      padding: 1rem;
+      border-radius: 8px;
+      display: none;
+      margin-top: 1rem;
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    #status.success {
+      display: block;
+      background: rgba(34, 197, 94, 0.1);
+      border: 1px solid #22c55e;
+      color: #4ade80;
+    }
+
+    #status.error {
+      display: block;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid #ef4444;
+      color: #f87171;
+    }
+
+    #status.processing {
+      display: block;
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid #3b82f6;
+      color: #60a5fa;
+    }
+
+    .info {
+      margin-top: 2rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid #333;
+    }
+
+    .info h3 {
+      font-size: 1rem;
+      margin-bottom: 0.5rem;
+      color: #fff;
+    }
+
+    .info ul {
+      list-style: none;
+      padding: 0;
+    }
+
+    .info li {
+      padding: 0.3rem 0;
+      color: #aaa;
+      font-size: 0.9rem;
+    }
+
+    .info li::before {
+      content: "-> ";
+      color: #ff4444;
+    }
+
+    footer {
+      margin-top: 2rem;
+      color: #555;
+      font-size: 0.8rem;
+    }
+
+    footer a {
+      color: #888;
+      text-decoration: none;
+    }
+
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <h1>Grayjay Export Converter</h1>
+  <p class="subtitle">Convert Grayjay exports to YouTube Takeout format.</p>
+
+  <div class="container">
+    <div class="drop-zone" id="drop-zone">
+      <div class="icon">&#128193;</div>
+      <strong>Drop your Grayjay export ZIP here</strong>
+      <p>or click to browse</p>
+    </div>
+    <input type="file" id="file-input" accept=".zip">
+
+    <div id="status"></div>
+
+    <div class="info">
+      <h3>What gets converted</h3>
+      <ul>
+        <li>Watch history -> watch-history.json</li>
+        <li>Subscriptions -> subscriptions.csv</li>
+        <li>Playlists -> individual CSV files</li>
+        <li>Watch Later -> Watch later videos.csv</li>
+      </ul>
+      <h3 style="margin-top: 1rem;">Tested with</h3>
+      <ul>
+        <li>LibreTube - subscriptions, history, playlists</li>
+        <li>FreeTube - subscriptions, history</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>
+    <a href="https://github.com/joetul/GrayjayExportConverter">GitHub</a> &middot; All processing happens locally in your browser.
+  </footer>
+
+  <script>
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const statusEl = document.getElementById('status');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files.length > 0) {
+        handleFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length > 0) {
+        handleFile(fileInput.files[0]);
+      }
+    });
+
+    function setStatus(msg, type) {
+      statusEl.className = type;
+      statusEl.innerHTML = msg;
+    }
+
+    function parseYoutubeId(url) {
+      try {
+        return new URL(url).searchParams.get('v');
+      } catch {
+        return null;
+      }
+    }
+
+    function extractChannelId(url) {
+      const match = url.match(/youtube\.com\/channel\/([^/?&]+)/);
+      return match ? match[1] : null;
+    }
+
+    function toTakeoutTimestamp(date) {
+      // YouTube Takeout uses +00:00 instead of Z
+      return date.toISOString().replace('Z', '+00:00');
+    }
+
+    function epochToIso8601(epoch) {
+      return toTakeoutTimestamp(new Date(parseInt(epoch) * 1000));
+    }
+
+    function nowIso() {
+      return toTakeoutTimestamp(new Date());
+    }
+
+    function csvEscape(val) {
+      const s = String(val);
+      if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }
+
+    function csvRow(fields) {
+      return fields.map(csvEscape).join(',');
+    }
+
+    async function handleFile(file) {
+      if (!file.name.toLowerCase().endsWith('.zip')) {
+        setStatus('Please select a .zip file.', 'error');
+        return;
+      }
+
+      setStatus('Processing...', 'processing');
+
+      try {
+        const zip = await JSZip.loadAsync(file);
+        const results = await convert(zip);
+        await downloadResults(results, file.name);
+      } catch (err) {
+        setStatus('Error: ' + err.message, 'error');
+        console.error(err);
+      }
+    }
+
+    async function readFileFromZip(zip, pathSuffix) {
+      for (const [path, entry] of Object.entries(zip.files)) {
+        if (!entry.dir && path.endsWith(pathSuffix)) {
+          return await entry.async('string');
+        }
+      }
+      return null;
+    }
+
+    // Build a channel ID -> name lookup from cache_channels
+    function buildChannelNameMap(cacheChannelsRaw) {
+      const map = {};
+      if (!cacheChannelsRaw) return map;
+      try {
+        const channels = JSON.parse(cacheChannelsRaw.trim());
+        for (const ch of channels) {
+          if (ch.id && ch.id.value && ch.name) {
+            map[ch.id.value] = ch.name;
+          }
+          // Also index by URL
+          if (ch.url) {
+            const id = extractChannelId(ch.url);
+            if (id && ch.name) {
+              map[id] = ch.name;
+            }
+          }
+        }
+      } catch { /* ignore parse errors */ }
+      return map;
+    }
+
+    async function convert(zip) {
+      const output = {};
+      const stats = { history: 0, subscriptions: 0, playlists: 0, watchLater: 0 };
+
+      // Load channel name cache for resolving names
+      const cacheChannelsRaw = await readFileFromZip(zip, 'cache_channels');
+      const channelNames = buildChannelNameMap(cacheChannelsRaw);
+
+      // 1. Watch history
+      // Format: JSON array of strings "url|||epoch|||watchPosition|||title"
+      const historyRaw = await readFileFromZip(zip, 'stores/history');
+      const watchHistory = [];
+      if (historyRaw) {
+        const entries = JSON.parse(historyRaw.trim());
+        for (const entry of entries) {
+          const parts = entry.split('|||');
+          if (parts.length >= 4) {
+            const url = parts[0];
+            const epoch = parts[1];
+            const title = parts[3];
+            if (url.startsWith('https://www.youtube.com/watch?')) {
+              watchHistory.push({
+                header: 'YouTube',
+                title: 'Watched ' + title,
+                titleUrl: url,
+                subtitles: [{ name: 'Unknown Channel', url: 'https://www.youtube.com/' }],
+                time: epochToIso8601(epoch),
+                products: ['YouTube'],
+                activityControls: ['YouTube watch history']
+              });
+            }
+          }
+        }
+        stats.history = watchHistory.length;
+      }
+      output['watch-history.json'] = JSON.stringify(watchHistory, null, 2);
+
+      // 2. Subscriptions
+      // File can be named "grayjay_Subscriptions" or "Subscriptions"
+      // Format: JSON array of URLs (includes non-YouTube like Spotify)
+      let subsRaw = await readFileFromZip(zip, 'stores/grayjay_Subscriptions');
+      if (!subsRaw) {
+        subsRaw = await readFileFromZip(zip, 'stores/Subscriptions');
+      }
+      const subRows = [csvRow(['Channel Id', 'Channel Url', 'Channel Title'])];
+      if (subsRaw) {
+        const subs = JSON.parse(subsRaw.trim());
+        for (const sub of subs) {
+          const channelId = extractChannelId(sub);
+          if (channelId) {
+            const channelUrl = 'http://www.youtube.com/channel/' + channelId;
+            const channelName = channelNames[channelId] || '';
+            subRows.push(csvRow([channelId, channelUrl, channelName]));
+            stats.subscriptions++;
+          }
+        }
+      }
+      output['subscriptions.csv'] = subRows.join('\n');
+
+      // 3. Playlists
+      // Format: JSON array of strings "playlistName :::uuid\nurl1\nurl2..."
+      const playlistsRaw = await readFileFromZip(zip, 'stores/Playlists');
+      if (playlistsRaw) {
+        const playlists = JSON.parse(playlistsRaw.trim());
+        for (const playlistData of playlists) {
+          const lines = playlistData.split('\n');
+          // First line: "name :::uuid" — strip the UUID part
+          let playlistName = lines[0] || 'Untitled Playlist';
+          const uuidSep = playlistName.indexOf(' :::');
+          if (uuidSep !== -1) {
+            playlistName = playlistName.substring(0, uuidSep);
+          }
+          playlistName = playlistName.trim();
+
+          const urls = lines.slice(1);
+          const rows = [csvRow(['Video Id', 'Time Added'])];
+          for (const u of urls) {
+            if (u.includes('youtube.com/watch?v=')) {
+              const vid = parseYoutubeId(u.trim());
+              if (vid) {
+                rows.push(csvRow([vid, nowIso()]));
+              }
+            }
+          }
+          if (rows.length > 1) {
+            output['playlists/' + playlistName + ' videos.csv'] = rows.join('\n');
+            stats.playlists++;
+          }
+        }
+      }
+
+      // 4. Watch later
+      // Format: JSON array of URL strings
+      const watchLaterRaw = await readFileFromZip(zip, 'stores/Watch_later');
+      if (watchLaterRaw) {
+        const watchLater = JSON.parse(watchLaterRaw.trim());
+        const rows = [csvRow(['Video Id', 'Time Added'])];
+        for (const u of watchLater) {
+          if (typeof u === 'string' && u.includes('youtube.com/watch?v=')) {
+            const vid = parseYoutubeId(u.trim());
+            if (vid) {
+              rows.push(csvRow([vid, nowIso()]));
+              stats.watchLater++;
+            }
+          }
+        }
+        if (rows.length > 1) {
+          output['playlists/Watch later videos.csv'] = rows.join('\n');
+        }
+      }
+
+      const parts = [];
+      if (stats.history > 0) parts.push(stats.history + ' history entries');
+      if (stats.subscriptions > 0) parts.push(stats.subscriptions + ' subscriptions');
+      if (stats.playlists > 0) parts.push(stats.playlists + ' playlists');
+      if (stats.watchLater > 0) parts.push(stats.watchLater + ' watch later items');
+
+      if (parts.length === 0) {
+        setStatus('No YouTube data found in this export. Make sure this is a Grayjay export ZIP.', 'error');
+      } else {
+        setStatus('Converted: ' + parts.join(', ') + '.<br>Your download should start automatically.', 'success');
+      }
+
+      return output;
+    }
+
+    async function downloadResults(files, originalName) {
+      const outZip = new JSZip();
+      for (const [path, content] of Object.entries(files)) {
+        outZip.file(path, content);
+      }
+      const blob = await outZip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = originalName.replace(/\.zip$/i, '') + '_youtube_takeout.zip';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  </script>
+
+</body>
+</html>
